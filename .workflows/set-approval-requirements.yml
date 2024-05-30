@@ -1,0 +1,50 @@
+name: Set Approval Requirements
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  set_approvals:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Retrieve Status Checks
+        id: get_status
+        run: |
+          checks=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            /repos/${{ github.repository }}/commits/${{ github.sha }}/status-checks \
+            | jq '.')
+
+          revert_check=$(echo $checks | jq -r '.check_runs[] | select(.name == "revert-check") | .conclusion')
+          gemfile_check=$(echo $checks | jq -r '.check_runs[] | select(.name == "gemfile-lock-check") | .conclusion')
+
+          echo "revert_check=$revert_check" >> $GITHUB_ENV
+          echo "gemfile_check=$gemfile_check" >> $GITHUB_ENV
+
+      - name: Determine Approval Requirements
+        id: set_requirements
+        run: |
+          if [[ "${{ env.revert_check }}" == "success" || "${{ env.gemfile_check }}" == "success" ]]; then
+            echo "::set-output name=approval_status::one_required"
+          else
+            echo "::set-output name=approval_status::two_required"
+          fi
+
+      - name: Create GitHub Status Check
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const approvalStatus = core.getInput('approval_status');
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: approvalStatus === 'two_required' ? 'failure' : 'success',
+              context: 'approval-check',
+              description: approvalStatus === 'two_required' ? 'Requires 2 Dev Approvals' : 'Requires 1 Dev Approval'
+            });
