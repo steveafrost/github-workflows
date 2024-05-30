@@ -1,0 +1,40 @@
+name: Check for Gemfile.lock Minor/Patch Update
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check_gemfile_update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Check Gemfile.lock for minor/patch updates
+        id: check_gemfile
+        run: |
+          if git diff --name-only origin/main...HEAD | grep -q 'Gemfile.lock'; then
+            if git diff origin/main...HEAD Gemfile.lock | grep -Eq '^\+.*\(([0-9]+\.?){2}[0-9]+\)'; then
+              echo "::set-output name=is_minor_or_patch::true"
+            else
+              echo "::set-output name=is_minor_or_patch::false"
+            fi
+          else
+            echo "::set-output name=is_minor_or_patch::false"
+          fi
+
+      - name: Create GitHub Status Check
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const isMinorOrPatch = core.getInput('is_minor_or_patch');
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: isMinorOrPatch === 'true' ? 'success' : 'failure',
+              context: 'gemfile-lock-check',
+              description: isMinorOrPatch === 'true' ? 'Minor/Patch Gemfile.lock update detected' : 'Non-minor/patch Gemfile.lock update'
+            });

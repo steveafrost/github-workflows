@@ -1,0 +1,33 @@
+name: Check for Revert PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check_revert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check PR Title for Revert
+        id: check_revert
+        run: |
+          if [[ "${{ github.event.pull_request.title }}" =~ ^revert ]]; then
+            echo "::set-output name=is_revert::true"
+          else
+            echo "::set-output name=is_revert::false"
+          fi
+
+      - name: Create GitHub Status Check
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const isRevert = core.getInput('is_revert');
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: isRevert === 'true' ? 'success' : 'failure',
+              context: 'revert-check',
+              description: isRevert === 'true' ? 'Revert PR detected' : 'Non-revert PR'
+            });
